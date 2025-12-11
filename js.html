@@ -1,0 +1,323 @@
+<script>
+  // STATE MANAGEMENT
+  let currentUser = null;
+  let isSignupMode = false;
+  let cachedReferrals = []; // New: Store data locally
+  
+
+  // --- UI TOGGLES ---
+  function toggleAuthMode() {
+    isSignupMode = !isSignupMode;
+    const title = document.getElementById('auth-title');
+    const btnLogin = document.getElementById('btn-login');
+    const btnSignup = document.getElementById('btn-signup');
+    const toggleText = document.getElementById('toggle-text');
+    const hint = document.getElementById('auth-hint');
+    const msg = document.getElementById('auth-msg');
+
+    msg.innerText = ""; 
+
+    if (isSignupMode) {
+      title.innerText = "Set Password";
+      btnLogin.classList.add('hidden');
+      btnSignup.classList.remove('hidden');
+      toggleText.innerText = "Back to Login";
+      hint.innerText = "Enter your username and your new desired password.";
+    } else {
+      title.innerText = "Login";
+      btnLogin.classList.remove('hidden');
+      btnSignup.classList.add('hidden');
+      toggleText.innerText = "Need to set a password? Click here.";
+      hint.innerText = "For first time, you can use username as password.";
+    }
+  }
+
+  function switchTab(tabName) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    
+    document.getElementById('tab-' + tabName).classList.add('active');
+    
+    const btns = document.querySelectorAll('.tab-btn');
+    if(tabName === 'submit') btns[0].classList.add('active');
+    else btns[1].classList.add('active');
+
+    if(tabName === 'view') loadReferrals();
+  }
+
+  function toggleLoader(show) {
+    const loader = document.getElementById('loader');
+    if(show) loader.classList.remove('hidden');
+    else loader.classList.add('hidden');
+  }
+
+  // --- AUTHENTICATION ---
+  function login() {
+    const user = document.getElementById('username').value.trim();
+    const pass = document.getElementById('password').value.trim();
+    if(!user || !pass) return showMsg("Please enter both fields.");
+
+    toggleLoader(true);
+    google.script.run
+      .withSuccessHandler(function(response) {
+        toggleLoader(false);
+        if(response.success) {
+          currentUser = response.username;
+          enterDashboard();
+        } else {
+          showMsg(response.message, true);
+        }
+      })
+      .handleLogin(user, pass);
+  }
+
+  function signup() {
+    const user = document.getElementById('username').value.trim();
+    const pass = document.getElementById('password').value.trim();
+    if(!user || !pass) return showMsg("Please enter both fields.");
+
+    toggleLoader(true);
+    google.script.run
+      .withSuccessHandler(function(response) {
+        toggleLoader(false);
+        showMsg(response.message, !response.success);
+        if(response.success) {
+            setTimeout(() => toggleAuthMode(), 1500);
+        }
+      })
+      .handleSignup(user, pass);
+  }
+
+  function showMsg(text, isError = false) {
+    const el = document.getElementById('auth-msg');
+    el.innerText = text;
+    el.style.color = isError ? 'red' : 'green';
+  }
+
+  function enterDashboard() {
+    document.getElementById('auth-view').classList.add('hidden');
+    document.getElementById('dashboard-view').classList.remove('hidden');
+    document.getElementById('display-username').innerText = currentUser;
+  }
+
+  function logout() {
+    currentUser = null;
+    cachedReferrals = []; // Clear cache
+    document.getElementById('username').value = "";
+    document.getElementById('password').value = "";
+    document.getElementById('dashboard-view').classList.add('hidden');
+    document.getElementById('auth-view').classList.remove('hidden');
+  }
+
+  // --- REFERRAL SUBMISSION ---
+  function validateEmail(email) {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+  }
+
+  function validatePhone(phone) {
+    const cleanPhone = phone.replace(/\D/g, ''); 
+    return cleanPhone.length >= 13;
+  }
+
+  function handleFormSubmit(e) {
+    e.preventDefault();
+    const form = document.getElementById('referral-form');
+    const phoneVal = form.phone.value;
+    const emailVal = form.email.value;
+
+    if(!validatePhone(phoneVal)) {
+      alert("Please enter a valid phone number (at least 13 digits).");
+      return;
+    }
+    if(!validateEmail(emailVal)) {
+      alert("Please enter a valid email address.");
+      return;
+    }
+
+    toggleLoader(true);
+    
+    const formData = {
+      phone: phoneVal,
+      email: emailVal,
+      consentDriver: form.consentDriver.checked,
+      consentShare: form.consentShare.checked
+    };
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        toggleLoader(false);
+        if(res.success) {
+          document.getElementById('referral-form-container').classList.add('hidden');
+          document.getElementById('success-view').classList.remove('hidden');
+          cachedReferrals = []; // Clear cache so we fetch new data next time
+          console.log("Starting Validation...");
+      
+          // Step A: Run Validation
+          google.script.run.withSuccessHandler(function() {
+           
+           // Step B: Once Validation is done, run Duplicate Counter
+           google.script.run
+             .withSuccessHandler(function() {
+                google.script.run.moveReferralData();
+             })
+             .duplicateCounter();
+        })
+        .validateNewRecords();
+          
+        } else {
+          alert("Error: " + res.error);
+        }
+      })
+      .submitReferral(formData, currentUser);
+  }
+
+  function resetForm() {
+    document.getElementById('referral-form').reset();
+    document.getElementById('success-view').classList.add('hidden');
+    document.getElementById('referral-form-container').classList.remove('hidden');
+  }
+
+
+  // ... (Keep existing auth/state variables) ...
+  
+  // NEW: Define the specific order of groups
+  const STATUS_GROUPS = [
+    "No trips",
+    "Duplicate",
+    "In progress", 
+    "Invalid",
+    "Completed",
+    "Missed"
+  ];
+
+
+function loadReferrals(forceRefresh = false) {
+
+
+    const container = document.getElementById('referral-list');
+    if(!container) return console.error("Container not found!");
+
+    // Check if we can use the cache
+    if (cachedReferrals.length > 0 && !forceRefresh) {
+      renderGroups();
+      return;
+    }
+
+    container.innerHTML = '<div style="text-align:center; padding:20px;"><div class="spinner"></div><br>Syncing...</div>';
+
+    google.script.run
+      .withSuccessHandler(function(data) {
+        cachedReferrals = data; // Update the cache
+        renderGroups();         // Render the new data
+      })
+      .withFailureHandler(function(error) {
+        container.innerHTML = '<p style="color:red; text-align:center;">Connection failed. Try again.</p>';
+      })
+      .getMyReferrals(currentUser);
+  }
+
+  function renderGroups() {
+    const timeframe = document.getElementById('timeframe-select').value;
+    const container = document.getElementById('referral-list');
+    
+    // 1. Filter by DATE
+    const dateFilteredData = filterByDate(cachedReferrals, timeframe);
+
+    if (dateFilteredData.length === 0) {
+      container.innerHTML = '<p style="text-align:center; color:#888; margin-top:30px;">No referrals found in this timeframe.</p>';
+      return;
+    }
+
+    container.innerHTML = ''; 
+
+    // 2. Loop through Groups
+    const STATUS_GROUPS = [
+      "No trips", "Duplicate", "In progress", "Invalid", "Completed", "Missed"
+    ];
+
+    STATUS_GROUPS.forEach(groupName => {
+      // Find items for this group
+      const groupItems = dateFilteredData.filter(item => 
+        (item.status || "").toLowerCase() === groupName.toLowerCase()
+      );
+
+      // Create Wrapper
+      const groupDiv = document.createElement('div');
+      groupDiv.className = 'group-container';
+      
+      // Auto-expand "In progress" if it has items
+      const isExpanded = (groupName.toLowerCase() === 'in progress' && groupItems.length > 0);
+
+      groupDiv.innerHTML = `
+        <div class="group-header ${isExpanded ? 'active' : ''}" onclick="toggleGroup(this)">
+          <div class="group-title">
+            ${groupName}
+            <span class="group-count">${groupItems.length}</span>
+          </div>
+          <i class="fas fa-chevron-down chevron"></i>
+        </div>
+        <div class="group-content ${isExpanded ? 'show' : ''}">
+          ${generateCardsHTML(groupItems)}
+        </div>
+      `;
+
+      container.appendChild(groupDiv);
+    });
+  }
+
+  // Helper: Filter by Date
+  function filterByDate(data, timeframe) {
+    if (timeframe === 'all') return data;
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    return data.filter(item => {
+      const itemDate = new Date(item.date);
+      const itemDay = new Date(itemDate.getFullYear(), itemDate.getMonth(), itemDate.getDate());
+
+      if (timeframe === 'today') {
+        return itemDay.getTime() === today.getTime();
+      }
+
+      const diffTime = Math.abs(today - itemDay);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+
+      if (timeframe === '7days') return diffDays <= 7;
+      if (timeframe === '30days') return diffDays <= 30;
+      return true;
+    });
+  }
+
+  // Helper: Generate Card HTML
+  function generateCardsHTML(items) {
+    if (items.length === 0) {
+      return '<div style="font-style:italic; color:#aaa; font-size:0.9rem;">No referrals in this category.</div>';
+    }
+
+    return items.map(item => `
+      <div class="referral-card status-${item.status.replace(/ /g, '-')}">
+        <div class="ref-header">
+          <strong><i class="fas fa-phone"></i> ${item.phone}</strong>
+        </div>
+        <div style="font-size:0.9rem; margin-bottom:5px; color:#555;">
+          <i class="fas fa-envelope"></i> ${item.email}
+        </div>
+        <div class="ref-date" style="margin-top:8px; text-align:right; font-size:0.85rem; color:#999;">
+          ${new Date(item.date).toLocaleDateString()}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // Helper: Toggle Accordion
+  function toggleGroup(header) {
+    header.classList.toggle('active');
+    const content = header.nextElementSibling;
+    content.classList.toggle('show');
+  }
+
+
+ 
+</script>
