@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <title>Referral Portal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <?!= include('css'); ?>
+  </head>
+  <body>
+
+    <div id="auth-view" class="container center-screen">
+      <div class="card auth-card">
+        
+        <img src="https://upload.wikimedia.org/wikipedia/commons/1/17/"class="app-logo" alt="">
+        
+        <h2 id="auth-title" class="text-center">Login</h2>
+        
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" id="username" placeholder="Enter username">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="password" placeholder="Enter password">
+          <small id="auth-hint">For first time login, you can use your username as your password.</small>
+        </div>
+        
+        <button id="btn-login" class="btn primary full-width" onclick="login()">Sign In</button>
+        <button id="btn-signup" class="btn secondary full-width hidden" onclick="signup()">Set/Update Password</button>
+        
+        <p class="toggle-link" onclick="toggleAuthMode()" style="text-align:center; color:var(--bolt-green); cursor:pointer; margin-top:20px;">
+          <span id="toggle-text">Need to set a password? Click here.</span>
+        </p>
+        <div id="auth-msg" class="text-center" style="margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <div id="dashboard-view" class="hidden">
+      
+      <nav class="navbar">
+        <div class="logo">
+          <span style="font-weight: 800; font-size: 1.2rem; letter-spacing: -0.5px;"></span> 
+          <span style="font-weight: 400; opacity: 0.9; margin-left: 5px;">| Driver Portal</span>
+        </div>
+        <div class="user-info">
+          <span style="margin-right:10px;">Hi, <b id="display-username">User</b></span>
+          <button class="btn-small" onclick="logout()">Logout</button>
+        </div>
+      </nav>
+
+      <div class="dashboard-container">
+        
+        <div class="tabs">
+          <button class="tab-btn active" onclick="switchTab('submit')">New Referral</button>
+          <button class="tab-btn" onclick="switchTab('view')">View History</button>
+        </div>
+
+        <div id="tab-submit" class="tab-content active">
+          <div class="card">
+            
+            <div id="referral-form-container">
+              <h3 style="margin-top:0; color: var(--bolt-dark);">Refer a Driver</h3>
+              <p style="color: var(--text-muted); margin-bottom:25px;">
+                Fill in the details below to refer a churned driver.
+              </p>
+              
+              <form id="referral-form" onsubmit="handleFormSubmit(event)" autocomplete="off">
+                <div class="form-group">
+                  <label>Driver Phone Number</label>
+                  <input type="tel" name="phone" id="input-phone" placeholder="e.g. 234XXXXXXXXXX" required>
+                  <small>Format: 13 digits required</small>
+                </div>
+
+                <div class="form-group">
+                  <label>Driver Email Address</label>
+                  <input type="email" name="email" id="input-email" placeholder="driver@example.com" required>
+                </div>
+
+                <hr style="border:0; border-top:1px solid #F5F7F9; margin: 25px 0;">
+
+                <div class="form-group checkbox-group">
+                  <label style="display:flex; align-items:flex-start; gap:12px; cursor:pointer;">
+                    <input type="checkbox" name="consentDriver" required style="width:auto; margin-top:3px;">
+                    <span>I confirm I am authorized to share this user's information.</span>
+                  </label>
+                </div>
+
+                <div class="form-group checkbox-group">
+                  <label style="display:flex; align-items:flex-start; gap:12px; cursor:pointer;">
+                    <input type="checkbox" name="consentShare" required style="width:auto; margin-top:3px;">
+                    <span>I authorize [company] to share my information with this user if they ask.</span>
+                  </label>
+                </div>
+
+                <button type="submit" class="btn primary full-width">Submit Referral</button>
+              </form>
+            </div>
+
+            <div id="success-view" class="success-container hidden">
+              <div class="success-icon">
+                <i class="fas fa-check-circle"></i>
+              </div>
+              <h2 style="color: var(--bolt-dark);">Referral Sent!</h2>
+              <p style="color: var(--text-muted); margin-bottom:30px; line-height: 1.5;">
+                Thank you. We have received the driver's details.
+              </p>
+              <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                <button class="btn primary" onclick="resetForm()">Submit Another</button>
+                <button class="btn secondary" onclick="switchTab('view')">View History</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div id="tab-view" class="tab-content">
+          <div class="filter-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+             <div style="display: flex; align-items: center; gap: 10px;">
+               <label style="font-weight: 600; color: var(--bolt-dark);">Timeframe:</label>
+               <select id="timeframe-select" onchange="renderGroups()" style="padding: 8px; width: auto;">
+                 <option value="today">Today</option>
+                 <option value="7days">Last 7 Days</option>
+                 <option value="30days">Last 30 Days</option>
+                 <option value="all" selected>All Time</option>
+               </select>
+             </div>
+             <button class="btn-small secondary" onclick="loadReferrals(true)" style="color: var(--bolt-dark); border-color: #ddd;">
+               <i class="fas fa-sync"></i> Refresh
+             </button>
+          </div>
+          
+          <div id="referral-list" class="referral-grid">
+            <p style="text-align:center; color: var(--text-muted);">Select a timeframe to view data.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    
+    <div id="loader" class="loader-overlay hidden">
+      <div class="spinner"></div>
+    </div>
+
+    <?!= include('js'); ?>
+  </body>
+</html>
